@@ -1,48 +1,108 @@
+// src/app/actions/dashboard.ts
 'use server'
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 
-export async function acceptMemberAction(memberId: string) {
-  const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+// ============================================
+// GET PENDING REQUESTS
+// ============================================
+export async function getPendingRequestsAction() {
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return { success: false, data: [], message: 'Unauthorized' }
 
-  // Updating to active is what triggers our Date Clash / Capacity checks
-  const { error } = await supabaseAdmin
+  const { data: trips } = await supabase
+    .from('trips')
+    .select('id')
+    .eq('host_id', user.id)
+    .in('status', ['open', 'in_progress'])
+
+  if (!trips || trips.length === 0) return { success: true, data: [] }
+
+  const tripIds = trips.map(t => t.id)
+
+  const { data: pending, error } = await supabase
     .from('trip_members')
-    .update({ status: 'active' })
-    .eq('id', memberId)
+    .select(`
+      id,
+      trip_id,
+      squad_id,
+      status,
+      roster_snapshot,
+      created_at,
+      squads (
+        name,
+        captain_id,
+        profiles!squads_captain_id_fkey (
+          full_name,
+          avatar_url,
+          c_score
+        )
+      )
+    `)
+    .in('trip_id', tripIds)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
 
-  if (error) {
-    console.error('Accept error:', error.message)
-    return { success: false, message: error.message }
-  }
+  if (error) return { success: false, data: [], message: error.message }
 
-  revalidatePath('/dashboard')
-  revalidatePath('/')
-  return { success: true, message: 'Member accepted!' }
+  return { success: true, data: pending }
 }
 
-export async function rejectMemberAction(memberId: string) {
-  const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+// ============================================
+// REFRESH GHOST ROSTER
+// ============================================
+export async function refreshRosterSnapshotAction(memberId: string) {
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return { success: false, message: 'Unauthorized' }
 
-  // Deleting the row completely clears the request
-  const { error } = await supabaseAdmin
+  const { data: member } = await supabase.from('trip_members').select('trip_id, squad_id').eq('id', memberId).single()
+  if (!member) return { success: false, message: 'Member not found.' }
+
+  const { data: trip } = await supabase.from('trips').select('host_id').eq('id', member.trip_id).single()
+  if (!trip || trip.host_id !== user.id) return { success: false, message: 'Only host can refresh.' }
+
+  const { data: roster } = await supabase
+    .from('squad_members')
+    .select(`
+      user_id,
+      profiles!squad_members_user_id_fkey (
+        full_name,
+        avatar_url,
+        reliability,
+        flexibility,
+        fun,
+        safety,
+        contribution,
+        c_score
+      )
+    `)
+    .eq('squad_id', member.squad_id)
+    .eq('status', 'active')
+
+  const snapshot = roster?.map((sm: any) => ({
+    user_id: sm.user_id,
+    full_name: sm.profiles?.full_name || 'Unknown',
+    avatar_url: sm.profiles?.avatar_url || null,
+    genome: {
+      reliability: sm.profiles?.reliability || 0.5,
+      flexibility: sm.profiles?.flexibility || 0.5,
+      fun: sm.profiles?.fun || 0.5,
+      safety: sm.profiles?.safety || 0.5,
+      contribution: sm.profiles?.contribution || 0.5,
+    },
+    c_score: sm.profiles?.c_score || 0,
+  })) || []
+
+  const { error: updateError } = await supabase
     .from('trip_members')
-    .delete()
+    .update({ roster_snapshot: snapshot })
     .eq('id', memberId)
 
-  if (error) {
-    console.error('Reject error:', error.message)
-    return { success: false, message: error.message }
-  }
+  if (updateError) return { success: false, message: 'Failed to update snapshot.' }
 
   revalidatePath('/dashboard')
-  revalidatePath('/')
-  return { success: true, message: 'Member rejected.' }
+  return { success: true, message: 'Roster snapshot refreshed.' }
 }

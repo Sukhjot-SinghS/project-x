@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Users, ChevronDown, Loader2, Plus } from 'lucide-react';
+import { Users, ChevronDown, Loader as Loader2, Plus } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 

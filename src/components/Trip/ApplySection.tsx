@@ -6,6 +6,7 @@ import type { Squad, User } from '@/types';
 import { Button } from '@/components/Shared/Button';
 import { useToast } from '@/components/Shared/Toast';
 import { applyToTripAction } from '@/app/actions/trip';
+import { SquadSelector } from '@/components/Trip/SquadSelector';
 import { cn } from '@/lib/utils';
 
 interface ApplySectionProps {
@@ -102,22 +103,11 @@ export function ApplySection({
       <p className="text-xs text-charcoal/55 mb-4">Apply with one of your squads or as a solo traveller.</p>
 
       <label className="block text-xs font-medium text-charcoal/70 mb-1.5">Select a squad</label>
-      <select
+      <SquadSelector
+        userId={user?.id || ''}
         value={selectedSquadId}
-        onChange={(e) => setSelectedSquadId(e.target.value)}
-        className={cn(
-          'w-full px-4 py-3 rounded-xl border border-charcoal/15 bg-white text-sm text-charcoal',
-          'focus:outline-none focus:border-terracotta focus:ring-2 focus:ring-terracotta/20 transition-all',
-        )}
-      >
-        <option value="">Choose a squad...</option>
-        {userSquads.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name} ({s.members.length} members)
-          </option>
-        ))}
-        <option value="solo">Apply solo</option>
-      </select>
+        onChange={setSelectedSquadId}
+      />
 
       <div className="flex gap-2 mt-4">
         <Button variant="primary" className="flex-1" loading={isApplying} onClick={handleApply}>
